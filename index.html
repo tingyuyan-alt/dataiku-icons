@@ -225,7 +225,7 @@ const curIdx   = ()=> isMat()?MAT_IDX:BRAND_IDX;
 const rec = n => isMat()?MAT[n]:BRAND[n];
 function iconSVG(n){
   if(isMat()) return `<svg viewBox="${MVB}" aria-hidden="true">${matInner(MAT[n].p)}</svg>`;
-  const r=BRAND[n]; return `<svg viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${r.s}</svg>`;
+  const r=BRAND[n]; return `<svg viewBox="${r.vb}" fill="none" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${r.s}</svg>`;
 }
 
 // ---- controls ----
@@ -365,14 +365,14 @@ function buildSVG(n){
     return `<svg ${XMLNS} width="24" height="24" viewBox="${MVB}"><g transform="translate(0 960) scale(1 -1)"><path d="${MAT[n].p}" fill="${ICON_COLOR}"/></g></svg>`;
   }
   const r=BRAND[n]; const [w,h]=dims(r.vb);
-  return `<svg ${XMLNS} width="${w}" height="${h}" viewBox="${r.vb}">${r.s}</svg>`;
+  return `<svg ${XMLNS} fill="none" width="${w}" height="${h}" viewBox="${r.vb}">${r.s}</svg>`;
 }
 function pngSVG(n,size){
   if(isMat()){
     return `<svg ${XMLNS} width="${size}" height="${size}" viewBox="${MVB}"><g transform="translate(0 960) scale(1 -1)"><path d="${MAT[n].p}" fill="${ICON_COLOR}"/></g></svg>`;
   }
   const r=BRAND[n];
-  return `<svg ${XMLNS} width="${size}" height="${size}" viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet">${r.s}</svg>`;
+  return `<svg ${XMLNS} fill="none" width="${size}" height="${size}" viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet">${r.s}</svg>`;
 }
 function toPascal(n){return 'Icon'+n.split('_').map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join('');}
 function buildJSX(n){
