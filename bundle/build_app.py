@@ -1,13 +1,29 @@
-import json, os, base64
+import json, os, base64, re
 HERE = os.path.dirname(os.path.abspath(__file__))
-def _p(*parts): return os.path.join(HERE, *parts)
-mat = json.load(open(_p("data","icons_final.json")))
-brand = json.load(open(_p("data","brand_final.json")))
+def _find(name):
+    # prefer a data/ subfolder (repo layout), fall back to alongside the script
+    for cand in (os.path.join(HERE,"data",name), os.path.join(HERE,name)):
+        if os.path.exists(cand): return cand
+    return os.path.join(HERE,name)
+mat   = json.load(open(_find("icons_final.json")))
+brand = json.load(open(_find("brand_final.json")))
+
+# Derive a Core Black variant of each DKU icon: recolor real colors to Core Black,
+# keep white knockouts and transparency. Generated at build time so new icons get it free.
+_WHITE = {'#fff','#ffffff','#fffef9','white'}
+def _to_black(inner):
+    def repl(m):
+        attr, val = m.group(1), m.group(2)
+        return m.group(0) if (val.lower()=='none' or val.lower() in _WHITE) else f'{attr}="#1A1A1A"'
+    return re.sub(r'(fill|stroke)="([^"]+)"', repl, inner)
+for _v in brand.values():
+    _v["sb"] = _to_black(_v["s"])
+
 mat_json   = json.dumps(mat,   separators=(",",":"))
 brand_json = json.dumps(brand, separators=(",",":"), ensure_ascii=False)
 N_MAT   = f"{len(mat):,}"
 N_BRAND = f"{len(brand):,}"
-FAVICON = base64.b64encode(open(_p("logo.svg"),"rb").read()).decode()
+FAVICON = base64.b64encode(open(_find("logo.svg"),"rb").read()).decode()
 
 HTML = r'''<!DOCTYPE html>
 <html lang="en">
@@ -84,6 +100,11 @@ HTML = r'''<!DOCTYPE html>
   .lbl{font-family:var(--mono);font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
   .count{margin-left:auto;font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
   .count b{color:var(--dark-green)}
+  .modetoggle{display:none;border:1px solid var(--line-strong)}
+  body.tab-brand .modetoggle{display:flex}
+  .modetoggle button{background:var(--white);color:var(--muted);border:0;font-family:var(--mono);
+    font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:9px 12px;cursor:pointer}
+  .modetoggle button[aria-pressed="true"]{background:var(--green);color:var(--black)}
 
   /* ---- grid ---- */
   main{max-width:1400px;margin:0 auto;padding:22px 24px 80px}
@@ -123,6 +144,9 @@ HTML = r'''<!DOCTYPE html>
   .stage svg{width:96px;height:96px}
   .drawer.mat .stage svg{fill:var(--icon)}
   .d-name{font-family:var(--mono);font-size:15px;color:var(--text);word-break:break-word;text-align:center}
+  .d-kw{font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;
+    max-width:320px;line-height:1.7}
+  .d-kw:empty{display:none}
   .actions{padding:4px 20px 24px;display:grid;grid-template-columns:1fr 1fr;gap:8px;overflow:auto}
   .btn{font-family:var(--body);font-size:13px;padding:11px 12px;cursor:pointer;
     border:1px solid var(--line-strong);background:var(--white);color:var(--text);
@@ -179,6 +203,10 @@ HTML = r'''<!DOCTYPE html>
       <button class="sw" title="Core White"  data-c="#FFFEF9" style="background:#FFFEF9"></button>
       <button class="sw" title="Green"        data-c="#3EDAB2" style="background:#3EDAB2"></button>
     </div>
+    <div class="modetoggle" role="group" aria-label="DKU icon color">
+      <button data-mode="color" aria-pressed="true">Full color</button>
+      <button data-mode="black">Core black</button>
+    </div>
     <div class="count" id="count"></div>
   </div>
 </div>
@@ -202,7 +230,12 @@ HTML = r'''<!DOCTYPE html>
       <button class="sw" title="Core White" data-c="#FFFEF9" style="background:#FFFEF9"></button>
       <button class="sw" title="Green"      data-c="#3EDAB2" style="background:#3EDAB2"></button>
     </div>
+    <div class="modetoggle" role="group" aria-label="DKU icon color">
+      <button data-mode="color" aria-pressed="true">Full color</button>
+      <button data-mode="black">Core black</button>
+    </div>
     <div class="d-name" id="dName"></div>
+    <div class="d-kw" id="dKw"></div>
   </div>
   <div class="actions">
     <button class="btn primary full" data-act="png">Copy PNG</button>
@@ -221,8 +254,8 @@ const MAT   = JSON.parse(document.getElementById('data').textContent);
 const BRAND = JSON.parse(document.getElementById('brand').textContent);
 const MAT_NAMES   = Object.keys(MAT);
 const BRAND_NAMES = Object.keys(BRAND);
-const MAT_IDX   = MAT_NAMES.map(n => (n.replace(/_/g,' ')+' '+MAT[n].c).toLowerCase());
-const BRAND_IDX = BRAND_NAMES.map(n => (n+' '+BRAND[n].c).toLowerCase());
+const MAT_IDX   = MAT_NAMES.map(n => (n.replace(/_/g,' ')+' '+MAT[n].c+' '+(MAT[n].k||'')).toLowerCase());
+const BRAND_IDX = BRAND_NAMES.map(n => (n+' '+BRAND[n].c+' '+(BRAND[n].k||'')).toLowerCase());
 const MVB='0 0 960 960';
 const XMLNS='xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"';
 const matInner = d => `<g transform="translate(0 960) scale(1 -1)"><path d="${d}"/></g>`;
@@ -230,13 +263,15 @@ const escA=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
 const escH=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
 let TAB='mat';
+let BRAND_MODE='color';                                  // 'color' | 'black' (DKU tab)
+const brandBody = n => (BRAND_MODE==='black' && BRAND[n].sb) ? BRAND[n].sb : BRAND[n].s;
 const isMat = ()=> TAB==='mat';
 const curNames = ()=> isMat()?MAT_NAMES:BRAND_NAMES;
 const curIdx   = ()=> isMat()?MAT_IDX:BRAND_IDX;
 const rec = n => isMat()?MAT[n]:BRAND[n];
 function iconSVG(n){
   if(isMat()) return `<svg viewBox="${MVB}" aria-hidden="true">${matInner(MAT[n].p)}</svg>`;
-  const r=BRAND[n]; return `<svg viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${r.s}</svg>`;
+  const r=BRAND[n]; return `<svg viewBox="${r.vb}" fill="none" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${brandBody(n)}</svg>`;
 }
 
 // ---- controls ----
@@ -247,15 +282,57 @@ function populateCats(){
   catSel.innerHTML='<option value="">All categories</option>'+cats.map(c=>`<option>${escH(c)}</option>`).join('');
 }
 const PAGE_SIZE=600;
+// token sets per icon (name tokens + category + keywords) for word-aware matching
+function buildToks(names, get){
+  return names.map(n=>{
+    const nm=n.toLowerCase().replace(/_/g,' ').split(/\s+/).filter(Boolean);
+    const r=get(n);
+    const all=(nm.join(' ')+' '+r.c+' '+(r.k||'')).toLowerCase().split(/\s+/).filter(Boolean);
+    return {nm:new Set(nm), all:new Set(all)};
+  });
+}
+const MAT_TOK=buildToks(MAT_NAMES,n=>MAT[n]);
+const BRAND_TOK=buildToks(BRAND_NAMES,n=>BRAND[n]);
+const curTok=()=> isMat()?MAT_TOK:BRAND_TOK;
+
+// score one icon against the query; 0 = no match. Ranks name hits above keyword hits,
+// matches whole words (so "bin" hits the tag "bin", not "combine"), and only falls back
+// to loose substring for queries of 4+ chars.
+function scoreIcon(i,qtokens,qraw,names,idx,tok){
+  const lname=names[i].toLowerCase().replace(/_/g,' ');
+  let s=0;
+  if(lname===qraw) s+=1000;
+  else if(lname.startsWith(qraw)) s+=200;
+  else if(lname.includes(qraw)) s+=80;
+  for(const qt of qtokens){
+    let c=0;
+    if(tok[i].all.has(qt)) c=tok[i].nm.has(qt)?60:20;         // whole-word match
+    else{
+      let pref=false; for(const t of tok[i].all){ if(t.startsWith(qt)){pref=true;break;} }
+      if(pref) c=8;                                           // token prefix (live typing)
+      else if(qt.length>=4 && idx[i].includes(qt)) c=2;       // loose substring, longer queries only
+    }
+    if(c===0) return 0;                                       // AND: every query word must match
+    s+=c;
+  }
+  return s;
+}
+
 let filtered=[]; let page=1;
 const pager=document.getElementById('pager');
 function applyFilter(){
-  const term=q.value.trim().toLowerCase(), cat=catSel.value, names=curNames(), idx=curIdx();
-  filtered=names.filter((n,i)=>{
-    if(cat && rec(n).c!==cat) return false;
-    if(!term) return true;
-    return idx[i].includes(term);
-  });
+  const raw=q.value.trim().toLowerCase();
+  const cat=catSel.value, names=curNames(), idx=curIdx(), tok=curTok();
+  const qtokens=raw.split(/\s+/).filter(Boolean);
+  const res=[];
+  for(let i=0;i<names.length;i++){
+    if(cat && rec(names[i]).c!==cat) continue;
+    if(!raw){ res.push([names[i],0]); continue; }
+    const sc=scoreIcon(i,qtokens,raw,names,idx,tok);
+    if(sc>0) res.push([names[i],sc]);
+  }
+  if(raw) res.sort((a,b)=> b[1]-a[1] || a[0].localeCompare(b[0]));
+  filtered=res.map(r=>r[0]);
   page=1;
   render();
 }
@@ -350,9 +427,20 @@ function switchTab(t){
 }
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
 
+// DKU full-color / core-black toggle (both toggle groups stay in sync)
+function setMode(m){
+  BRAND_MODE=m;
+  document.querySelectorAll('.modetoggle button').forEach(x=>x.setAttribute('aria-pressed', x.dataset.mode===m?'true':'false'));
+  if(!isMat()){
+    render();
+    if(drawer.classList.contains('on') && current) stage.innerHTML=iconSVG(current);
+  }
+}
+document.querySelectorAll('.modetoggle button').forEach(b=>b.addEventListener('click',()=>setMode(b.dataset.mode)));
+
 // ---- drawer ----
 const drawer=document.getElementById('drawer'), scrim=document.getElementById('scrim');
-const stage=document.getElementById('stage'), dName=document.getElementById('dName'), dCat=document.getElementById('dCat');
+const stage=document.getElementById('stage'), dName=document.getElementById('dName'), dCat=document.getElementById('dCat'), dKw=document.getElementById('dKw');
 let current=null;
 function openIcon(n){
   current=n;
@@ -360,6 +448,9 @@ function openIcon(n){
   drawer.classList.toggle('brand', !isMat());
   stage.innerHTML=iconSVG(n);
   dName.textContent=n; dCat.textContent=rec(n).c;
+  const nameWords=new Set(n.toLowerCase().replace(/_/g,' ').split(/\s+/));
+  const kws=[...new Set((rec(n).k||'').split(/\s+/).filter(w=>w && !nameWords.has(w)))].slice(0,12);
+  dKw.textContent = kws.length ? 'also: '+kws.join(', ') : '';
   syncStage();
   drawer.classList.add('on'); scrim.classList.add('on'); drawer.setAttribute('aria-hidden','false');
 }
@@ -376,14 +467,14 @@ function buildSVG(n){
     return `<svg ${XMLNS} width="24" height="24" viewBox="${MVB}"><g transform="translate(0 960) scale(1 -1)"><path d="${MAT[n].p}" fill="${ICON_COLOR}"/></g></svg>`;
   }
   const r=BRAND[n]; const [w,h]=dims(r.vb);
-  return `<svg ${XMLNS} width="${w}" height="${h}" viewBox="${r.vb}">${r.s}</svg>`;
+  return `<svg ${XMLNS} fill="none" width="${w}" height="${h}" viewBox="${r.vb}">${brandBody(n)}</svg>`;
 }
 function pngSVG(n,size){
   if(isMat()){
     return `<svg ${XMLNS} width="${size}" height="${size}" viewBox="${MVB}"><g transform="translate(0 960) scale(1 -1)"><path d="${MAT[n].p}" fill="${ICON_COLOR}"/></g></svg>`;
   }
   const r=BRAND[n];
-  return `<svg ${XMLNS} width="${size}" height="${size}" viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet">${r.s}</svg>`;
+  return `<svg ${XMLNS} fill="none" width="${size}" height="${size}" viewBox="${r.vb}" preserveAspectRatio="xMidYMid meet">${brandBody(n)}</svg>`;
 }
 function toPascal(n){return 'Icon'+n.split('_').map(s=>s.charAt(0).toUpperCase()+s.slice(1)).join('');}
 function buildJSX(n){
@@ -444,7 +535,8 @@ populateCats();
 applyFilter();
 document.getElementById('foot').innerHTML =
   `${MAT_NAMES.length.toLocaleString()} Material Symbols (Apache-2.0, Sharp / Fill 1 / wght 500 / Grade 200 / opsz 24) `
-  + `&middot; ${BRAND_NAMES.length} DKU product icons &middot; internal design system`;
+  + `&middot; ${BRAND_NAMES.length} DKU product icons &middot; internal design system`
+  + `<br>&copy;2026 Dataiku Inc.`;
 </script>
 </body>
 </html>'''
@@ -454,5 +546,6 @@ HTML = (HTML.replace("__MAT__", mat_json)
             .replace("__NMAT__", N_MAT)
             .replace("__NBRAND__", N_BRAND)
             .replace("__FAVICON__", FAVICON))
-open(_p("index.html"),"w").write(HTML)
-print("wrote index.html, size MB:", round(os.path.getsize(_p("index.html"))/1e6,2))
+OUT = os.path.join(HERE,"index.html") if os.path.isdir(os.path.join(HERE,"data")) else "/mnt/user-data/outputs/dataiku-icons.html"
+open(OUT,"w").write(HTML)
+print("wrote", OUT, "| size MB:", round(os.path.getsize(OUT)/1e6,2))
